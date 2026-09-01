@@ -89,22 +89,14 @@ export class ChatService {
     const conversation = await this.createConversation(studentId);
     const conversationIdStr = conversation._id.toString();
 
-    // Obtener conversaciones anteriores para reutilizar estructura
-    const previousConversations = await this.conversationModel
-      .find({ studentId: new Types.ObjectId(studentId), isActive: false })
-      .sort({ createdAt: -1 })
-      .limit(1);
-
-    let history: MessageHistory[];
-
-    if (previousConversations.length > 0) {
-      const prevId = previousConversations[0]._id.toString();
-      const cachedHistory = this.conversationCache.get(prevId);
-      history = cachedHistory || [];
-      history.length = 0;
-    } else {
-      history = [];
-    }
+    // Cada conversación arranca con su propio array de historial.
+    //
+    // La versión anterior recuperaba del cache el array de la conversación
+    // previa y lo vaciaba con `history.length = 0`. Eso mutaba el array
+    // original (borrando ese historial) y, al guardarlo después bajo la clave
+    // nueva, dejaba dos entradas del Map apuntando al mismo array: los
+    // mensajes de una conversación aparecían también en la otra.
+    const history: MessageHistory[] = [];
 
     if (initialContext) {
       history.push({
