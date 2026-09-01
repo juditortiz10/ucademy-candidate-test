@@ -1,25 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
 import styled from 'styled-components';
-import { BookOpen, CheckCircle, Clock, Target, BarChart3 } from 'lucide-react';
+import { BookOpen, CheckCircle, Clock, Target, Flame, AlertCircle, RefreshCw } from 'lucide-react';
 import { StatsCard } from '../components/StatsCard';
 import { CourseCard } from '../components/CourseCard';
+import { ActivityChart } from '../components/ActivityChart';
+import { DashboardSkeleton } from '../components/DashboardSkeleton';
 import { api } from '../services/api';
 
 interface DashboardProps {
   studentId: string;
 }
 
-/**
- * ✅ PARCIALMENTE IMPLEMENTADO - Página del Dashboard
- *
- * El candidato debe completar:
- * 1. Implementar el componente ActivityChart (gráfico de actividad semanal)
- * 2. Implementar la lista de cursos con scroll horizontal
- * 3. Añadir estados de loading y error
- * 4. Implementar la sección de cursos recientes
- */
 export function Dashboard({ studentId }: DashboardProps) {
-  const { data: dashboard, isLoading, error } = useQuery({
+  const { data: dashboard, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['dashboard', studentId],
     queryFn: () => api.getDashboard(studentId),
   });
@@ -29,18 +22,38 @@ export function Dashboard({ studentId }: DashboardProps) {
     queryFn: () => api.getCourses(studentId),
   });
 
-  // TODO: Implementar estado de loading con skeleton
+  // Las estadísticas alimentan la racha y el gráfico; si fallan, el resto del
+  // dashboard se sigue mostrando.
+  const { data: stats } = useQuery({
+    queryKey: ['stats', studentId],
+    queryFn: () => api.getStats(studentId),
+  });
+
   if (isLoading) {
-    return <LoadingState>Cargando dashboard...</LoadingState>;
+    return (
+      <>
+        <VisuallyHidden role="status">Cargando dashboard...</VisuallyHidden>
+        <DashboardSkeleton />
+      </>
+    );
   }
 
-  // TODO: Implementar estado de error con retry
   if (error) {
-    return <ErrorState>Error al cargar el dashboard</ErrorState>;
+    return (
+      <ErrorState role="alert">
+        <AlertCircle size={40} />
+        <ErrorTitle>Error al cargar el dashboard</ErrorTitle>
+        <ErrorDetail>{(error as Error).message}</ErrorDetail>
+        <RetryButton onClick={() => refetch()} disabled={isRefetching}>
+          <RefreshCw size={16} className={isRefetching ? 'spinning' : undefined} />
+          {isRefetching ? 'Reintentando...' : 'Reintentar'}
+        </RetryButton>
+      </ErrorState>
+    );
   }
 
   if (!dashboard) {
-    return <ErrorState>No se encontraron datos</ErrorState>;
+    return <ErrorState role="alert">No se encontraron datos</ErrorState>;
   }
 
   return (
@@ -73,42 +86,32 @@ export function Dashboard({ studentId }: DashboardProps) {
           color="var(--color-secondary)"
           subtitle="Total acumulado"
         />
-        <StatsCard
-          title="Total Cursos"
-          value={dashboard.stats.totalCourses}
-          icon={<Target size={24} />}
-          color="var(--color-primary)"
-        />
+        {stats ? (
+          <StatsCard
+            title="Racha de estudio"
+            value={`${stats.streak.currentStreakDays} ${stats.streak.currentStreakDays === 1 ? 'día' : 'días'}`}
+            icon={<Flame size={24} />}
+            color="var(--color-warning)"
+            subtitle={stats.streak.studiedToday ? '¡Hoy ya has estudiado!' : 'Estudia hoy para mantenerla'}
+          />
+        ) : (
+          <StatsCard
+            title="Total Cursos"
+            value={dashboard.stats.totalCourses}
+            icon={<Target size={24} />}
+            color="var(--color-primary)"
+          />
+        )}
       </StatsGrid>
 
-      {/* 📝 TODO: Implementar gráfico de actividad semanal */}
+      {/* Actividad de los últimos 7 días, con datos reales de /stats */}
       <Section>
         <SectionTitle>Actividad Semanal</SectionTitle>
-        <ActivityChartPlaceholder>
-          {/* TODO: El candidato debe implementar ActivityChart
-           *
-           * Requisitos:
-           * - Mostrar actividad de los últimos 7 días
-           * - Usar chart.js o recharts
-           * - Mostrar horas de estudio por día
-           * - Incluir tooltip con detalles
-           *
-           * Datos de ejemplo:
-           * const weeklyData = [
-           *   { day: 'Lun', hours: 2.5 },
-           *   { day: 'Mar', hours: 1.0 },
-           *   { day: 'Mié', hours: 3.0 },
-           *   ...
-           * ];
-           */}
-          <PlaceholderText>
-            <BarChart3 size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
-            <br />
-            Gráfico de Actividad
-            <br />
-            <small>TODO: Implementar con chart.js o recharts</small>
-          </PlaceholderText>
-        </ActivityChartPlaceholder>
+        {stats ? (
+          <ActivityChart data={stats.activityByDay} />
+        ) : (
+          <ChartLoading aria-busy="true">Cargando actividad...</ChartLoading>
+        )}
       </Section>
 
       {/* Sección de cursos recientes */}
@@ -118,7 +121,6 @@ export function Dashboard({ studentId }: DashboardProps) {
           <ViewAllLink href="/courses">Ver todos →</ViewAllLink>
         </SectionHeader>
 
-        {/* 📝 TODO: Implementar lista de cursos con mejor UX */}
         <CoursesGrid>
           {courses?.slice(0, 4).map((course: any) => (
             <CourseCard
@@ -134,7 +136,6 @@ export function Dashboard({ studentId }: DashboardProps) {
           ))}
         </CoursesGrid>
 
-        {/* TODO: Implementar empty state si no hay cursos */}
         {courses?.length === 0 && (
           <EmptyState>
             No tienes cursos todavía. ¡Explora el catálogo!
@@ -197,7 +198,7 @@ const ViewAllLink = styled.a`
   font-weight: 500;
 `;
 
-const ActivityChartPlaceholder = styled.div`
+const ChartLoading = styled.div`
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -205,10 +206,6 @@ const ActivityChartPlaceholder = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-`;
-
-const PlaceholderText = styled.div`
-  text-align: center;
   color: var(--color-text-secondary);
 `;
 
@@ -218,20 +215,68 @@ const CoursesGrid = styled.div`
   gap: var(--spacing-md);
 `;
 
-const LoadingState = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 400px;
-  color: var(--color-text-secondary);
+/** Visible para lectores de pantalla, oculto visualmente */
+const VisuallyHidden = styled.span`
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 `;
 
 const ErrorState = styled.div`
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: var(--spacing-sm);
   height: 400px;
   color: var(--color-error);
+  text-align: center;
+`;
+
+const ErrorTitle = styled.h2`
+  font-size: 18px;
+  font-weight: 600;
+`;
+
+const ErrorDetail = styled.p`
+  font-size: 14px;
+  color: var(--color-text-secondary);
+`;
+
+const RetryButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+
+  &:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
+  .spinning {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
 `;
 
 const EmptyState = styled.div`

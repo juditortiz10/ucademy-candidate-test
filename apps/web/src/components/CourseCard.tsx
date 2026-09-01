@@ -69,19 +69,6 @@ export function CourseCard({
   );
 }
 
-const Card = styled.div`
-  background: var(--color-surface);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  transition: all 0.2s ease;
-
-  /* TODO: Implementar efectos hover */
-  &:hover {
-    /* El candidato debe añadir efectos */
-  }
-`;
-
 const Thumbnail = styled.div<{ $url?: string }>`
   height: 140px;
   background: ${(props) => (props.$url ? `url(${props.$url})` : 'var(--color-background)')};
@@ -91,6 +78,40 @@ const Thumbnail = styled.div<{ $url?: string }>`
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.3s ease;
+`;
+
+const Card = styled.div`
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--color-primary);
+  }
+
+  /* La miniatura hace un zoom sutil al pasar por encima */
+  &:hover ${Thumbnail} {
+    transform: scale(1.05);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &:hover {
+      transform: none;
+    }
+  }
 `;
 
 const ThumbnailPlaceholder = styled.div`
