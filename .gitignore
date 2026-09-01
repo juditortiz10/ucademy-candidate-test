@@ -47,3 +47,6 @@ docs/
 
 # IA
 CLAUDE.md
+
+# Datos locales de MongoDB (instancia dedicada del proyecto)
+.mongodb-data/
