@@ -29,3 +29,7 @@ export class KnowledgeChunk {
 }
 
 export const KnowledgeChunkSchema = SchemaFactory.createForClass(KnowledgeChunk);
+
+// La búsqueda semántica carga los chunks filtrando por curso, y el reindexado
+// borra por (curso, fichero): ambos caminos se apoyan en este índice.
+KnowledgeChunkSchema.index({ courseId: 1, sourceFile: 1 });

@@ -11,38 +11,73 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { KnowledgeService } from './knowledge.service';
+import { PdfService } from './pdf.service';
+import { IndexContentDto } from './dto/index-content.dto';
+import { IndexPdfDto } from './dto/index-pdf.dto';
+import { SearchKnowledgeDto } from './dto/search-knowledge.dto';
 
 @ApiTags('Knowledge')
 @Controller('knowledge')
 export class KnowledgeController {
-  constructor(private readonly knowledgeService: KnowledgeService) {}
+  constructor(
+    private readonly knowledgeService: KnowledgeService,
+    private readonly pdfService: PdfService
+  ) {}
 
   /**
-   * TODO: Implement content indexing endpoint
+   * Indexa texto plano de un curso (trocea, embebe y guarda en MongoDB).
    */
   @Post('index')
   @ApiOperation({ summary: 'Indexar contenido de un curso' })
   @ApiResponse({ status: 201, description: 'Contenido indexado exitosamente' })
-  async indexContent(
-    @Body() body: { courseId: string; content: string; sourceFile?: string }
-  ) {
-    // TODO: Implementar
-    throw new Error('Not implemented');
+  @ApiResponse({ status: 400, description: 'Datos inválidos' })
+  async indexContent(@Body() dto: IndexContentDto) {
+    const result = await this.knowledgeService.indexCourseContent(
+      dto.courseId,
+      dto.content,
+      dto.sourceFile || 'manual-input'
+    );
+
+    return {
+      ...result,
+      courseId: dto.courseId,
+      sourceFile: dto.sourceFile || 'manual-input',
+    };
   }
 
   /**
-   * TODO: Implement semantic search endpoint
+   * Atajo para la demo: extrae el texto de un PDF de data/courses y lo indexa.
+   */
+  @Post('index/pdf')
+  @ApiOperation({ summary: 'Indexar un PDF de data/courses' })
+  @ApiResponse({ status: 201, description: 'PDF indexado exitosamente' })
+  @ApiResponse({ status: 404, description: 'PDF no encontrado' })
+  async indexPdf(@Body() dto: IndexPdfDto) {
+    const { text, pages } = await this.pdfService.extractText(dto.fileName);
+
+    const result = await this.knowledgeService.indexCourseContent(
+      dto.courseId,
+      text,
+      dto.fileName
+    );
+
+    return { ...result, courseId: dto.courseId, sourceFile: dto.fileName, pages };
+  }
+
+  /**
+   * Búsqueda semántica sobre la base de conocimiento.
    */
   @Get('search')
   @ApiOperation({ summary: 'Buscar contenido similar' })
   @ApiResponse({ status: 200, description: 'Resultados de busqueda' })
-  async search(
-    @Query('q') query: string,
-    @Query('courseId') courseId?: string,
-    @Query('limit') limit?: number
-  ) {
-    // TODO: Implementar
-    throw new Error('Not implemented');
+  async search(@Query() query: SearchKnowledgeDto) {
+    const results = await this.knowledgeService.searchSimilar(query.q, {
+      courseId: query.courseId,
+      limit: query.limit,
+      minScore: query.minScore,
+    });
+
+    return { query: query.q, count: results.length, results };
   }
 
   /**
