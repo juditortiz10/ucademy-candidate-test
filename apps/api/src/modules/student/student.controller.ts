@@ -37,49 +37,32 @@ export class StudentController {
   }
 
   /**
-   * 📝 TODO: Implementar endpoint de estadísticas
-   *
-   * Este endpoint debe retornar estadísticas detalladas del estudiante:
-   * - Total de horas de estudio
-   * - Cursos completados vs en progreso
-   * - Racha de días consecutivos de estudio
-   * - Promedio de progreso semanal
-   * - Distribución de tiempo por categoría de curso
-   *
-   * Hint: Usar agregaciones de MongoDB para calcular las estadísticas
+   * Estadísticas detalladas: tiempo total, cursos por estado, racha de días
+   * consecutivos, progreso semanal medio y distribución por categoría.
    */
   @Get(':id/stats')
   @ApiOperation({ summary: 'Obtener estadísticas detalladas del estudiante' })
   @ApiParam({ name: 'id', description: 'ID del estudiante' })
   @ApiResponse({ status: 200, description: 'Estadísticas del estudiante' })
+  @ApiResponse({ status: 404, description: 'Estudiante no encontrado' })
   async getStats(@Param('id') id: string) {
-    // TODO: Implementar este método en StudentService
-    // return this.studentService.getDetailedStats(id);
-
-    throw new Error('Not implemented - El candidato debe implementar este endpoint');
+    return this.studentService.getDetailedStats(id);
   }
 
   /**
-   * 📝 TODO: Implementar actualización de preferencias
-   *
-   * Este endpoint debe:
-   * - Validar que las preferencias sean válidas (usar el DTO)
-   * - Actualizar solo los campos proporcionados (merge parcial)
-   * - Retornar el estudiante actualizado
-   * - Manejar el caso de estudiante no encontrado
+   * Actualiza las preferencias del estudiante (merge parcial).
+   * La validación de los valores la aplica el ValidationPipe global vía DTO.
    */
   @Patch(':id/preferences')
   @ApiOperation({ summary: 'Actualizar preferencias del estudiante' })
   @ApiParam({ name: 'id', description: 'ID del estudiante' })
   @ApiResponse({ status: 200, description: 'Preferencias actualizadas' })
+  @ApiResponse({ status: 400, description: 'Preferencias inválidas' })
   @ApiResponse({ status: 404, description: 'Estudiante no encontrado' })
   async updatePreferences(
     @Param('id') id: string,
     @Body() updatePreferencesDto: UpdatePreferencesDto
   ) {
-    // TODO: Implementar este método en StudentService
-    // return this.studentService.updatePreferences(id, updatePreferencesDto);
-
-    throw new Error('Not implemented - El candidato debe implementar este endpoint');
+    return this.studentService.updatePreferences(id, updatePreferencesDto);
   }
 }

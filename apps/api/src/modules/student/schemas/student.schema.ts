@@ -23,6 +23,10 @@ export class Student {
 
   @Prop({ default: Date.now })
   lastActive: Date;
+
+  // Los añade `timestamps: true`; se declaran para que estén tipados.
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const StudentSchema = SchemaFactory.createForClass(Student);
