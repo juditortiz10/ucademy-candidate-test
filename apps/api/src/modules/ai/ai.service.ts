@@ -1,28 +1,53 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-// TODO: Descomentar cuando el candidato implemente la integración real
-// import OpenAI from 'openai';
+import OpenAI from 'openai';
 
-interface MessageHistory {
+export interface MessageHistory {
   role: 'user' | 'assistant' | 'system';
   content: string;
 }
 
-interface AiResponse {
+export interface AiResponse {
   content: string;
   tokensUsed?: number;
   model?: string;
+  responseTime?: number;
+  /** Fuentes RAG usadas para construir la respuesta (si las hubo) */
+  sources?: string[];
 }
+
+export interface GenerateOptions {
+  /** Reemplaza el system prompt base (p.ej. el personalizado por estudiante) */
+  systemPrompt?: string;
+  /** Fragmentos de contenido de curso recuperados por el sistema RAG */
+  context?: string[];
+}
+
+export interface StudentContext {
+  name: string;
+  currentCourse?: string;
+  progress?: number;
+}
+
+/** Máximo de mensajes previos que se envían como contexto conversacional */
+const MAX_HISTORY_MESSAGES = 20;
+/**
+ * gpt-5-mini es un modelo de razonamiento: los `reasoning_tokens` se descuentan
+ * de este presupuesto ANTES de emitir texto visible. Un valor bajo (p.ej. 300)
+ * devuelve `content` vacío sin error. Ver DECISIONS.md.
+ */
+const MAX_COMPLETION_TOKENS = 2000;
+const MAX_RETRIES = 3;
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  // TODO: Descomentar cuando el candidato implemente la integración real
-  // private openai: OpenAI;
+  private openai?: OpenAI;
+  private readonly model: string;
+  private readonly reasoningEffort: 'low' | 'medium' | 'high';
 
   /**
    * System prompt base para el asistente de estudiantes
-   * El candidato puede modificar o extender este prompt
    */
   private readonly baseSystemPrompt = `Eres un asistente educativo amigable y servicial para estudiantes de una plataforma de cursos online.
 
@@ -39,81 +64,269 @@ Reglas:
 - Usa ejemplos prácticos cuando sea posible`;
 
   constructor(private readonly configService: ConfigService) {
-    // TODO: El candidato debe inicializar el cliente de OpenAI
-    // const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-    // if (apiKey) {
-    //   this.openai = new OpenAI({ apiKey });
-    // }
-  }
+    this.model = this.configService.get<string>('OPENAI_CHAT_MODEL') || 'gpt-5-mini';
+    this.reasoningEffort =
+      (this.configService.get<'low' | 'medium' | 'high'>('OPENAI_REASONING_EFFORT')) || 'low';
 
-  /**
-   * ✅ ESTRUCTURA BASE - Genera respuesta del asistente
-   *
-   * Actualmente retorna una respuesta placeholder.
-   * El candidato debe:
-   * 1. Implementar la llamada real a OpenAI
-   * 2. Manejar errores de la API
-   * 3. Implementar retry logic si es necesario
-   * 4. Considerar rate limiting
-   */
-  async generateResponse(
-    userMessage: string,
-    history: MessageHistory[] = []
-  ): Promise<AiResponse> {
-    this.logger.debug(`Generando respuesta para: "${userMessage.substring(0, 50)}..."`);
-
-    // TODO: Implement OpenAI integration
-
-    // Respuesta placeholder mientras no está implementado
-    return this.generatePlaceholderResponse(userMessage);
-  }
-
-  /**
-   * TODO: Implement streaming responses
-   */
-  async *generateStreamResponse(
-    userMessage: string,
-    history: MessageHistory[] = []
-  ): AsyncGenerator<string> {
-    // TODO: Implementar streaming real con OpenAI
-    // Placeholder actual - simula streaming
-    const placeholder = await this.generatePlaceholderResponse(userMessage);
-    const words = placeholder.content.split(' ');
-
-    for (const word of words) {
-      yield word + ' ';
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+    if (apiKey) {
+      this.openai = new OpenAI({ apiKey });
+      this.logger.log(`OpenAI inicializado (modelo: ${this.model})`);
+    } else {
+      this.logger.warn('OPENAI_API_KEY no configurada: se usarán respuestas placeholder');
     }
   }
 
   /**
-   * TODO: Implement contextual system prompt
+   * Genera respuesta del asistente llamando a OpenAI.
+   * Si no hay API key configurada, degrada a una respuesta placeholder
+   * en lugar de romper el flujo del chat.
    */
-  buildContextualSystemPrompt(studentContext: {
-    name: string;
-    currentCourse?: string;
-    progress?: number;
-  }): string {
-    // TODO: Implementar personalizacion del prompt
-    return this.baseSystemPrompt;
+  async generateResponse(
+    userMessage: string,
+    history: MessageHistory[] = [],
+    options: GenerateOptions = {}
+  ): Promise<AiResponse> {
+    this.logger.debug(`Generando respuesta para: "${userMessage.substring(0, 50)}..."`);
+
+    if (!this.openai) {
+      return this.generatePlaceholderResponse();
+    }
+
+    const startedAt = Date.now();
+    const messages = this.buildMessages(userMessage, history, options);
+
+    const completion = await this.callWithRetry(() =>
+      this.openai!.chat.completions.create({
+        model: this.model,
+        messages,
+        // gpt-5-mini NO admite `max_tokens` ni `temperature` != 1.
+        max_completion_tokens: MAX_COMPLETION_TOKENS,
+        reasoning_effort: this.reasoningEffort,
+      })
+    );
+
+    const content = completion.choices?.[0]?.message?.content?.trim();
+
+    if (!content) {
+      this.logger.warn(
+        `Respuesta vacía de OpenAI (finish_reason: ${completion.choices?.[0]?.finish_reason}). ` +
+          'Probablemente el presupuesto de tokens se agotó en razonamiento.'
+      );
+      return {
+        content:
+          'Lo siento, no he podido generar una respuesta esta vez. ¿Puedes reformular tu pregunta?',
+        tokensUsed: completion.usage?.total_tokens ?? 0,
+        model: completion.model ?? this.model,
+        responseTime: Date.now() - startedAt,
+      };
+    }
+
+    return {
+      content,
+      tokensUsed: completion.usage?.total_tokens ?? 0,
+      model: completion.model ?? this.model,
+      responseTime: Date.now() - startedAt,
+    };
   }
 
   /**
-   * TODO: Implement RAG-enhanced response generation
+   * Genera la respuesta usando contexto recuperado del sistema RAG.
+   * El contexto se inyecta en el system prompt para que el modelo
+   * responda basándose en el contenido real de los cursos.
    */
   async generateResponseWithRAG(
     userMessage: string,
     history: MessageHistory[] = [],
-    relevantContext?: string[]
+    relevantContext?: string[],
+    options: GenerateOptions = {}
   ): Promise<AiResponse> {
-    // TODO: Implement
-    throw new Error('Not implemented');
+    const context = relevantContext?.filter((c) => c?.trim()) ?? [];
+
+    if (context.length === 0) {
+      this.logger.debug('Sin contexto RAG relevante: usando generación estándar');
+      return this.generateResponse(userMessage, history, options);
+    }
+
+    this.logger.debug(`Generando respuesta con ${context.length} fragmentos de contexto RAG`);
+
+    const response = await this.generateResponse(userMessage, history, {
+      ...options,
+      context,
+    });
+
+    return { ...response, sources: context };
   }
 
   /**
-   * Genera una respuesta placeholder para desarrollo
+   * Streaming de respuestas token a token (usado por el endpoint SSE).
    */
-  private generatePlaceholderResponse(userMessage: string): AiResponse {
+  async *generateStreamResponse(
+    userMessage: string,
+    history: MessageHistory[] = [],
+    options: GenerateOptions = {}
+  ): AsyncGenerator<string> {
+    if (!this.openai) {
+      const placeholder = this.generatePlaceholderResponse();
+      for (const word of placeholder.content.split(' ')) {
+        yield word + ' ';
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return;
+    }
+
+    const messages = this.buildMessages(userMessage, history, options);
+
+    const stream = await this.callWithRetry(() =>
+      this.openai!.chat.completions.create({
+        model: this.model,
+        messages,
+        max_completion_tokens: MAX_COMPLETION_TOKENS,
+        reasoning_effort: this.reasoningEffort,
+        stream: true,
+      })
+    );
+
+    for await (const chunk of stream) {
+      const token = chunk.choices?.[0]?.delta?.content;
+      if (token) {
+        yield token;
+      }
+    }
+  }
+
+  /**
+   * Personaliza el system prompt con el contexto del estudiante para que
+   * el asistente pueda dirigirse a él por su nombre y adaptar el tono
+   * a su progreso actual.
+   */
+  buildContextualSystemPrompt(studentContext: StudentContext): string {
+    const lines = [this.baseSystemPrompt, '', 'Contexto del estudiante:', `- Nombre: ${studentContext.name}`];
+
+    if (studentContext.currentCourse) {
+      lines.push(`- Curso actual: ${studentContext.currentCourse}`);
+    }
+
+    if (typeof studentContext.progress === 'number') {
+      lines.push(`- Progreso en el curso: ${studentContext.progress}%`);
+      lines.push(this.buildEncouragementHint(studentContext.progress));
+    }
+
+    lines.push('', `Dirígete a ${studentContext.name} por su nombre y adapta los ejemplos a su curso actual.`);
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Ajusta el tono del asistente según lo avanzado que vaya el estudiante.
+   */
+  private buildEncouragementHint(progress: number): string {
+    if (progress >= 80) {
+      return '- Está a punto de terminar: refuerza su constancia y propón repasos finales.';
+    }
+    if (progress >= 40) {
+      return '- Va por la mitad: reconoce su avance y ayúdale a mantener el ritmo.';
+    }
+    if (progress > 0) {
+      return '- Acaba de empezar: sé especialmente claro con los fundamentos.';
+    }
+    return '- Aún no ha empezado el curso: ayúdale a dar el primer paso.';
+  }
+
+  /**
+   * Construye el array de mensajes que se envía a OpenAI:
+   * system prompt (+ contexto RAG) + historial acotado + mensaje actual.
+   */
+  private buildMessages(
+    userMessage: string,
+    history: MessageHistory[],
+    options: GenerateOptions
+  ): OpenAI.Chat.ChatCompletionMessageParam[] {
+    let systemPrompt = options.systemPrompt || this.baseSystemPrompt;
+
+    if (options.context?.length) {
+      systemPrompt += `\n\n${this.buildContextBlock(options.context)}`;
+    }
+
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+    ];
+
+    // El historial puede traer mensajes 'system' propios (contexto inicial);
+    // se conservan, pero se acota el total para no disparar el coste.
+    for (const message of history.slice(-MAX_HISTORY_MESSAGES)) {
+      messages.push({ role: message.role, content: message.content } as OpenAI.Chat.ChatCompletionMessageParam);
+    }
+
+    messages.push({ role: 'user', content: userMessage });
+
+    return messages;
+  }
+
+  /**
+   * Envuelve los fragmentos recuperados con instrucciones de uso, para que el
+   * modelo priorice el material del curso y no invente cuando no lo cubre.
+   */
+  private buildContextBlock(context: string[]): string {
+    const fragments = context
+      .map((fragment, index) => `[Fragmento ${index + 1}]\n${fragment}`)
+      .join('\n\n');
+
+    return `Material del curso relevante para esta pregunta:
+
+${fragments}
+
+Instrucciones sobre el material:
+- Basa tu respuesta principalmente en estos fragmentos, son el contenido real del curso del estudiante.
+- Si los fragmentos no cubren la pregunta, dilo con claridad y responde con tu conocimiento general, avisando de que no procede del material del curso.
+- No inventes referencias a lecciones o secciones que no aparezcan en los fragmentos.`;
+  }
+
+  /**
+   * Reintento con backoff exponencial para errores transitorios
+   * (429 rate limit y 5xx). Los errores de cliente (4xx) no se reintentan.
+   */
+  private async callWithRetry<T>(operation: () => Promise<T>): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+
+        if (!this.isRetryable(error) || attempt === MAX_RETRIES - 1) {
+          break;
+        }
+
+        const delayMs = 2 ** attempt * 500;
+        this.logger.warn(
+          `Error transitorio de OpenAI (intento ${attempt + 1}/${MAX_RETRIES}), reintentando en ${delayMs}ms`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    this.logger.error(`Error llamando a OpenAI: ${this.describeError(lastError)}`);
+    throw new ServiceUnavailableException(
+      'El asistente no está disponible en este momento. Inténtalo de nuevo en unos segundos.'
+    );
+  }
+
+  private isRetryable(error: unknown): boolean {
+    const status = (error as { status?: number })?.status;
+    return status === 429 || (typeof status === 'number' && status >= 500);
+  }
+
+  private describeError(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
+  }
+
+  /**
+   * Genera una respuesta placeholder para desarrollo (sin API key).
+   */
+  private generatePlaceholderResponse(): AiResponse {
     const responses = [
       '¡Hola! Soy tu asistente de estudios. Veo que tienes una pregunta interesante. Para ayudarte mejor, ¿podrías darme más detalles sobre el tema específico del curso en el que necesitas ayuda?',
       'Entiendo tu duda. Este es un tema importante que muchos estudiantes encuentran desafiante. Te sugiero que revisemos los conceptos paso a paso. ¿Por dónde te gustaría empezar?',
