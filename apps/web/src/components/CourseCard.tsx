@@ -12,18 +12,10 @@ interface CourseCardProps {
 }
 
 /**
- * 📝 TODO: El candidato debe completar este componente
+ * Tarjeta de curso con barra de progreso, estado y efectos hover.
  *
- * Funcionalidades a implementar:
- * 1. Mostrar barra de progreso visual
- * 2. Mostrar estado del curso (no iniciado, en progreso, completado)
- * 3. Añadir animación hover
- * 4. Manejar click para navegar al curso
- * 5. Mostrar tiempo estimado restante
- *
- * Bonus:
- * - Añadir skeleton loading state
- * - Implementar lazy loading para la imagen
+ * Fuera de alcance a propósito: la navegación al detalle del curso, porque
+ * esa página no existe en el proyecto (el README la marca como placeholder).
  */
 export function CourseCard({
   title,
@@ -34,7 +26,6 @@ export function CourseCard({
   totalLessons,
   completedLessons = 0,
 }: CourseCardProps) {
-  // TODO: Implementar lógica de estado del curso
   const status = progress === 100 ? 'completed' : progress > 0 ? 'in-progress' : 'not-started';
 
   return (
@@ -48,7 +39,6 @@ export function CourseCard({
         <Title>{title}</Title>
         <Description>{description}</Description>
 
-        {/* TODO: Implementar barra de progreso */}
         <ProgressSection>
           <ProgressBar>
             <ProgressFill style={{ width: `${progress}%` }} />
@@ -58,7 +48,6 @@ export function CourseCard({
           </ProgressText>
         </ProgressSection>
 
-        {/* TODO: Implementar botón de acción según estado */}
         <ActionButton $status={status}>
           {status === 'completed' && 'Repasar'}
           {status === 'in-progress' && 'Continuar'}
