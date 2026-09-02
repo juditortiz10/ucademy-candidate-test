@@ -137,7 +137,7 @@ const MessageText = styled.div<{ $collapsed: boolean }>`
     `}
 
   /* Estilos del markdown renderizado */
-  p, ul, ol, pre, blockquote {
+  p, ul, ol, blockquote {
     white-space: normal;
     margin-bottom: var(--spacing-sm);
   }
@@ -164,11 +164,16 @@ const MessageText = styled.div<{ $collapsed: boolean }>`
     padding: var(--spacing-sm) var(--spacing-md);
     border-radius: var(--radius-md);
     overflow-x: auto;
+    margin-bottom: var(--spacing-sm);
+    /* Los saltos de línea del código son significativos: no se colapsan. */
+    white-space: pre;
 
     code {
       background: none;
       padding: 0;
       color: inherit;
+      white-space: pre;
+      word-break: normal;
     }
   }
 
