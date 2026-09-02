@@ -69,11 +69,27 @@ const ChatMessageSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// El seed borra los cursos, así que debe borrar también el conocimiento
+// indexado que apunta a ellos: si no, quedan chunks huérfanos que siguen
+// apareciendo duplicados en las búsquedas del RAG.
+const KnowledgeChunkSchema = new mongoose.Schema(
+  {
+    courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course' },
+    content: String,
+    embedding: [Number],
+    sourceFile: String,
+    chunkIndex: Number,
+    metadata: Object,
+  },
+  { timestamps: true }
+);
+
 const Student = mongoose.model('Student', StudentSchema);
 const Course = mongoose.model('Course', CourseSchema);
 const Progress = mongoose.model('Progress', ProgressSchema);
 const Conversation = mongoose.model('Conversation', ConversationSchema);
 const ChatMessage = mongoose.model('ChatMessage', ChatMessageSchema);
+const KnowledgeChunk = mongoose.model('KnowledgeChunk', KnowledgeChunkSchema);
 
 async function seed() {
   const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/candidate-test';
@@ -88,6 +104,7 @@ async function seed() {
     Progress.deleteMany({}),
     Conversation.deleteMany({}),
     ChatMessage.deleteMany({}),
+    KnowledgeChunk.deleteMany({}),
   ]);
 
   console.log('[SEED] Creando estudiante de prueba...');
@@ -287,6 +304,9 @@ Este patrón hace que la lógica sea más predecible y fácil de testear. ¿Tien
   console.log(`   - ${courses.length} cursos`);
   console.log(`   - 5 registros de progreso`);
   console.log(`   - 1 conversacion con 4 mensajes`);
+  console.log('');
+  console.log('[AVISO] La base de conocimiento se ha vaciado (los cursos son nuevos).');
+  console.log('        Ejecuta `npm run index:courses` con la API arrancada para reindexar.');
   console.log('');
   console.log('[INFO] Credenciales de prueba:');
   console.log('   Email: maria@test.com');
