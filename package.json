@@ -14,7 +14,8 @@
     "test": "nx run-many --target=test --all",
     "lint": "nx run-many --target=lint --all",
     "seed": "ts-node apps/api/src/seeds/seed.ts",
-    "index:courses": "ts-node scripts/index-courses.ts"
+    "index:courses": "ts-node scripts/index-courses.ts",
+    "demo": "bash scripts/demo.sh"
   },
   "dependencies": {
     "@nestjs/common": "10.2.0",
